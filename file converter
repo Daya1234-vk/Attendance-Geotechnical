@@ -1,0 +1,67 @@
+import streamlit as st
+import fitz  # PyMuPDF
+from pdf2docx import Converter
+import pdfplumber
+import pandas as pd
+import io
+import os
+import tempfile
+
+st.set_page_config(page_title="PDF Converter", page_icon="📄")
+
+st.title("📄 Universal PDF Converter")
+st.markdown("Upload a PDF to convert it to Word, Excel, Text, or Images.")
+
+uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
+
+if uploaded_file is not None:
+    file_bytes = uploaded_file.read()
+    
+    format_option = st.selectbox(
+        "Select Output Format",
+        ("Word (.docx)", "Excel (.xlsx)", "Text (.txt)", "Images (.png)")
+    )
+    
+    if st.button("Convert and Download"):
+        try:
+            with st.spinner("Processing..."):
+                # Use a temporary directory to handle files safely on the server
+                with tempfile.TemporaryDirectory() as tmpdirname:
+                    # Save uploaded PDF to temp folder
+                    input_path = os.path.join(tmpdirname, "input.pdf")
+                    with open(input_path, "wb") as f:
+                        f.write(file_bytes)
+
+                    # --- CONVERSION LOGIC ---
+                    if format_option == "Word (.docx)":
+                        output_path = os.path.join(tmpdirname, "output.docx")
+                        cv = Converter(input_path)
+                        cv.convert(output_path)
+                        cv.close()
+                        with open(output_path, "rb") as f:
+                            st.download_button("📩 Download Word File", f, "converted.docx")
+
+                    elif format_option == "Text (.txt)":
+                        doc = fitz.open(stream=file_bytes, filetype="pdf")
+                        text = "".join([page.get_text() for page in doc])
+                        st.download_button("📩 Download Text File", text, "converted.txt")
+
+                    elif format_option == "Excel (.xlsx)":
+                        output = io.BytesIO()
+                        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                                for i, page in enumerate(pdf.pages):
+                                    table = page.extract_table()
+                                    if table:
+                                        pd.DataFrame(table).to_excel(writer, sheet_name=f"Page_{i+1}", index=False)
+                        st.download_button("📩 Download Excel File", output.getvalue(), "converted.xlsx")
+
+                    elif format_option == "Images (.png)":
+                        doc = fitz.open(stream=file_bytes, filetype="pdf")
+                        for i in range(len(doc)):
+                            pix = doc[i].get_pixmap()
+                            st.download_button(f"📩 Download Page {i+1}", pix.tobytes("png"), f"page_{i+1}.png")
+            
+            st.success("Done!")
+        except Exception as e:
+            st.error(f"Error: {e}")
